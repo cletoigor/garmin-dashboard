@@ -1,0 +1,24 @@
+# Secrets / credentials
+.env
+.envrc
+
+# Personal/health data
+cache/
+last_sync.json
+goals.json
+
+# Logs
+cron.log
+*.log
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Node / web build
+web/node_modules/
+web/dist/

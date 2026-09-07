@@ -1,0 +1,42 @@
+@import "tailwindcss";
+@plugin '../hero.ts';
+@source '../node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}';
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  color-scheme: light dark;
+}
+
+html,
+body,
+#root {
+  min-height: 100svh;
+}
+
+body {
+  margin: 0;
+  font-family:
+    system-ui,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+}
+
+/* Fundo levemente gradiente (acento azul "Garmin"), sutil nos dois temas. As cores
+   sao fixas (nao dependem de variaveis HeroUI, que armazenam canais HSL crus e nao
+   compoem bem com color-mix/rgba) mas seguem o mesmo azul usado como primary. */
+.app-shell {
+  background-attachment: fixed;
+}
+:root.light .app-shell {
+  background-color: #fafbfd;
+  background-image:
+    radial-gradient(1100px circle at 12% -10%, rgba(13, 110, 184, 0.07), transparent 55%),
+    radial-gradient(900px circle at 100% 0%, rgba(13, 110, 184, 0.05), transparent 50%);
+}
+:root.dark .app-shell {
+  background-color: #0c0f13;
+  background-image:
+    radial-gradient(1100px circle at 12% -10%, rgba(77, 163, 255, 0.09), transparent 55%),
+    radial-gradient(900px circle at 100% 0%, rgba(77, 163, 255, 0.05), transparent 50%);
+}
