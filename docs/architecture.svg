@@ -1,0 +1,362 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1560" height="1276" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1560 1276" role="img" aria-label="Left to right: Garmin Connect API and the Gemini API sit in the Sources lane. Both writer paths — Flask request threads (lazy, TTL-gated) and the 09:00 launchd job daily_fetch.sh (which imports fetch_multi_day, fetch_activities and fetch_fitness directly, bypassing HTTP) — call into cached_fetch, the single gate to the network, in the Fetch and cache lane. cached_fetch checks a per-key TTL before refetching: today's daily snapshot and the 30-day activities list at 900 seconds, past-day snapshots and activity detail at 24 hours, fitness at 6 hours, and the Gemini AI analysis cached separately at 3 hours. Below it, the Storage lane holds four stores as cylinders: cache/daily_DATE.json, cache/activities_30d.json, cache/fitness.json and cache/activity_ID.json written by cached_fetch; cache/ai_analysis.json written by generate_ai_analysis; goals.json read and written by the goals routes; and last_sync.json written by write_sync_status from both writer paths and read by read_sync_status, which marks data stale past 26 hours and fail on an explicit failure. The Logic lane branches into two parallel lanes: pick_display_snapshot walks backward through daily_data until it finds a complete day and flags snapshot_is_fallback if today was incomplete; rule-based _generate_insights produces five categories, always available; generate_ai_analysis calls the Gemini API and degrades to ok:false when the key is missing, the call times out, or Gemini returns no candidates or empty text. The Routes lane shows the Flask app's read routes reading from the logic lane, and one gated red path: POST /refresh, which first unlinks every file in cache/ (gate 1) and only then calls fetch_multi_day, fetch_activities and fetch_fitness to rebuild it (gate 2) — the only route in the app that can return a real 500. Finally the Clients lane shows the React SPA at / and the legacy Jinja page at /legacy, both reading from the same Flask routes.">
+<style>
+/* Tokens inlined from the page stylesheet so this file stands alone. */
+svg {
+--ground:#F1F3EF;
+    --surface:#FDFDFB;
+    --surface-2:#E9ECE6;
+    --ink:#171B18;
+    --muted:#5D6862;
+    --line:#C3CBC2;
+    --line-soft:#DDE2DA;
+
+    --signal:#0F7B80;   --signal-bg:#E2EFEE;    /* compute / assets      */
+    --store:#9A6716;    --store-bg:#F4EBDA;     /* storage / datasets    */
+    --logic:#3A6446;    --logic-bg:#E4EDE4;     /* pure logic            */
+    --client:#35548C;   --client-bg:#E3EAF4;    /* UIs / consumers       */
+    --interlock:#A8351F;--interlock-bg:#F6E6E1; /* gated write path      */
+    --gate:#55468A;     --gate-bg:#EAE6F3;      /* soft gate / policy    */
+
+    --lane-a:#E9EDE8;
+    --lane-b:#E4EFEF;
+    --lane-c:#F2EBDD;
+    --lane-d:#E7EDE7;
+    --lane-e:#E5EAF2;
+}
+/* Google Fonts cannot load inside a GitHub-rendered SVG; the stacks below
+   already name generic fallbacks, which is what readers will actually see. */
+</style>
+
+
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted)"/>
+          </marker>
+          <marker id="ahr" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--interlock)"/>
+          </marker>
+        </defs>
+
+        <!-- ===================== LANES ===================== -->
+        <!-- Lane 1: Sources  y 0-140 -->
+        <rect x="0" y="0" width="1560" height="140" fill="var(--lane-a)"/>
+        <line x1="0" y1="140" x2="1560" y2="140" stroke="var(--line)" stroke-width="1"/>
+        <text x="14" y="60" font-family="Archivo, sans-serif" font-size="12.5" font-weight="600" fill="var(--ink)">Sources</text>
+        <text x="14" y="76" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--muted)">external APIs</text>
+
+        <!-- Lane 2: Fetch &amp; cache  y 140-330 -->
+        <rect x="0" y="140" width="1560" height="190" fill="var(--lane-b)"/>
+        <line x1="0" y1="330" x2="1560" y2="330" stroke="var(--line)" stroke-width="1"/>
+        <text x="14" y="230" font-family="Archivo, sans-serif" font-size="12.5" font-weight="600" fill="var(--ink)">Fetch &amp; cache</text>
+        <text x="14" y="246" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--muted)">cached_fetch()</text>
+
+        <!-- Lane 3: Writers (schedulers)  y 330-450 -->
+        <rect x="0" y="330" width="1560" height="120" fill="var(--lane-e)"/>
+        <line x1="0" y1="450" x2="1560" y2="450" stroke="var(--line)" stroke-width="1"/>
+        <text x="14" y="382" font-family="Archivo, sans-serif" font-size="12.5" font-weight="600" fill="var(--ink)">Writers</text>
+        <text x="14" y="398" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--muted)">two, no lock</text>
+
+        <!-- Lane 4: Storage  y 450-650 -->
+        <rect x="0" y="450" width="1560" height="200" fill="var(--lane-c)"/>
+        <line x1="0" y1="650" x2="1560" y2="650" stroke="var(--line)" stroke-width="1"/>
+        <text x="14" y="540" font-family="Archivo, sans-serif" font-size="12.5" font-weight="600" fill="var(--ink)">Storage</text>
+        <text x="14" y="556" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--muted)">flat JSON, no DB</text>
+
+        <!-- Lane 5: Logic  y 650-950 -->
+        <rect x="0" y="650" width="1560" height="300" fill="var(--lane-d)"/>
+        <line x1="0" y1="950" x2="1560" y2="950" stroke="var(--line)" stroke-width="1"/>
+        <text x="14" y="790" font-family="Archivo, sans-serif" font-size="12.5" font-weight="600" fill="var(--ink)">Logic</text>
+        <text x="14" y="806" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--muted)">two lanes</text>
+
+        <!-- Lane 6: Routes  y 950-1090 -->
+        <rect x="0" y="950" width="1560" height="140" fill="var(--lane-b)"/>
+        <line x1="0" y1="1090" x2="1560" y2="1090" stroke="var(--line)" stroke-width="1"/>
+        <text x="14" y="1015" font-family="Archivo, sans-serif" font-size="12.5" font-weight="600" fill="var(--ink)">Routes</text>
+        <text x="14" y="1031" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--muted)">Flask app.py</text>
+
+        <!-- Lane 7: Clients  y 1090-1230 -->
+        <rect x="0" y="1090" width="1560" height="140" fill="var(--lane-a)"/>
+        <text x="14" y="1155" font-family="Archivo, sans-serif" font-size="12.5" font-weight="600" fill="var(--ink)">Clients</text>
+        <text x="14" y="1171" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--muted)">two UIs</text>
+
+        <!-- ===================== LANE 1: SOURCES ===================== -->
+        <rect x="240" y="40" width="180" height="60" rx="2" fill="var(--signal-bg)" stroke="var(--signal)" stroke-width="1.4"/>
+        <text x="250" y="64" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" fill="var(--ink)">Garmin Connect</text>
+        <text x="250" y="80" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">unofficial garminconnect lib</text>
+        <text x="250" y="93" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">tokens in ~/.garminconnect</text>
+
+        <rect x="1120" y="40" width="200" height="60" rx="2" fill="var(--signal-bg)" stroke="var(--signal)" stroke-width="1.4"/>
+        <text x="1130" y="64" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" fill="var(--ink)">Gemini API</text>
+        <text x="1130" y="80" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">optional — no key = degrade</text>
+        <text x="1130" y="93" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">generateContent, 60s timeout</text>
+
+        <!-- ===================== LANE 2: FETCH &amp; CACHE ===================== -->
+        <rect x="240" y="175" width="1080" height="130" rx="2" fill="var(--surface)" stroke="var(--signal)" stroke-width="1.6"/>
+        <text x="255" y="198" font-family="JetBrains Mono, monospace" font-size="12" font-weight="700" fill="var(--ink)">cached_fetch(key, fetch_fn, ttl)</text>
+        <text x="255" y="213" font-family="Source Serif 4, serif" font-size="10" fill="var(--muted)">the ONLY path to the network — logic never calls garminconnect directly</text>
+
+        <!-- TTL tiers, drawn as five small chips inside the cached_fetch box -->
+        <g font-family="JetBrains Mono, monospace" font-size="9">
+          <rect x="255" y="228" width="195" height="62" rx="2" fill="var(--signal-bg)" stroke="var(--signal)" stroke-width="1"/>
+          <text x="263" y="243" font-weight="700" fill="var(--ink)" font-size="9.5">900s</text>
+          <text x="263" y="257" fill="var(--muted)">daily_&lt;today&gt;</text>
+          <text x="263" y="269" fill="var(--muted)">activities_30d</text>
+          <text x="263" y="281" fill="var(--muted)">still arriving from watch</text>
+
+          <rect x="458" y="228" width="195" height="62" rx="2" fill="var(--signal-bg)" stroke="var(--signal)" stroke-width="1"/>
+          <text x="466" y="243" font-weight="700" fill="var(--ink)" font-size="9.5">24h</text>
+          <text x="466" y="257" fill="var(--muted)">daily_&lt;past day&gt;</text>
+          <text x="466" y="269" fill="var(--muted)">activity_&lt;id&gt;</text>
+          <text x="466" y="281" fill="var(--muted)">immutable once synced</text>
+
+          <rect x="661" y="228" width="150" height="62" rx="2" fill="var(--signal-bg)" stroke="var(--signal)" stroke-width="1"/>
+          <text x="669" y="243" font-weight="700" fill="var(--ink)" font-size="9.5">6h</text>
+          <text x="669" y="257" fill="var(--muted)">fitness</text>
+          <text x="669" y="281" fill="var(--muted)">VO2max, race times</text>
+
+          <rect x="819" y="228" width="180" height="62" rx="2" fill="var(--logic-bg)" stroke="var(--logic)" stroke-width="1"/>
+          <text x="827" y="243" font-weight="700" fill="var(--ink)" font-size="9.5">3h (separate check)</text>
+          <text x="827" y="257" fill="var(--muted)">ai_analysis.json</text>
+          <text x="827" y="269" fill="var(--muted)">mtime check, not via</text>
+          <text x="827" y="281" fill="var(--muted)">cached_fetch itself</text>
+
+          <rect x="1007" y="228" width="105" height="62" rx="2" fill="var(--surface-2)" stroke="var(--line)" stroke-width="1"/>
+          <text x="1015" y="243" font-weight="700" fill="var(--ink)" font-size="9">key = f-string</text>
+          <text x="1015" y="257" fill="var(--muted)">mtime age &lt; ttl</text>
+          <text x="1015" y="269" fill="var(--muted)">→ read cache</text>
+          <text x="1015" y="281" fill="var(--muted)">else → fetch_fn()</text>
+        </g>
+
+        <!-- edges: sources -> cached_fetch -->
+        <path d="M 330 100 V 175" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+        <path d="M 1220 100 V 170" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+        <rect x="1225" y="150" width="100" height="13" fill="var(--surface)"/>
+        <text x="1275" y="160" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9" fill="var(--muted)">only for AI analysis</text>
+
+        <!-- ===================== LANE 3: WRITERS ===================== -->
+        <rect x="255" y="360" width="230" height="72" rx="2" fill="var(--surface)" stroke="var(--muted)" stroke-width="1.4"/>
+        <!-- labels re-emitted with halos after the storage-write edges below, so an edge passing behind this box doesn't cut the text -->
+
+
+        <rect x="1010" y="355" width="290" height="82" rx="2" fill="var(--gate-bg)" stroke="var(--gate)" stroke-width="1.4"/>
+        <text x="1020" y="376" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" fill="var(--ink)">launchd · daily_fetch.sh</text>
+        <text x="1020" y="391" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">StartCalendarInterval 09:00</text>
+        <text x="1020" y="404" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">imports fetch_multi_day / fetch_</text>
+        <text x="1020" y="417" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">activities / fetch_fitness directly</text>
+        <text x="1020" y="430" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">— bypasses HTTP, may run server-down</text>
+
+        <!-- edges writers -> cached_fetch (loop back drawn as forward rail into lane 2 top) -->
+        <rect x="255" y="437" width="60" height="13" fill="var(--surface)"/>
+        <text x="285" y="447" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9" fill="var(--muted)">calls</text>
+        <path d="M 370 360 V 305" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+        <path d="M 1150 355 V 305" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+        <rect x="1085" y="322" width="130" height="13" fill="var(--surface)"/>
+        <text x="1150" y="332" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9" fill="var(--muted)">rm cache/*.json first</text>
+
+        <!-- ===================== LANE 4: STORAGE (cylinders) ===================== -->
+        <!-- cache/daily_*.json -->
+        <g>
+          <ellipse cx="330" cy="600" rx="72" ry="8" fill="var(--surface)" stroke="var(--store)" stroke-width="1.4"/>
+          <rect x="258" y="540" width="144" height="60" fill="var(--surface)" stroke="none"/>
+          <line x1="258" y1="540" x2="258" y2="600" stroke="var(--store)" stroke-width="1.4"/>
+          <line x1="402" y1="540" x2="402" y2="600" stroke="var(--store)" stroke-width="1.4"/>
+          <ellipse cx="330" cy="540" rx="72" ry="8" fill="var(--store-bg)" stroke="var(--store)" stroke-width="1.4"/>
+        </g>
+        <!-- cache/activities_30d.json -->
+        <g>
+          <ellipse cx="500" cy="600" rx="72" ry="8" fill="var(--surface)" stroke="var(--store)" stroke-width="1.4"/>
+          <rect x="428" y="540" width="144" height="60" fill="var(--surface)" stroke="none"/>
+          <line x1="428" y1="540" x2="428" y2="600" stroke="var(--store)" stroke-width="1.4"/>
+          <line x1="572" y1="540" x2="572" y2="600" stroke="var(--store)" stroke-width="1.4"/>
+          <ellipse cx="500" cy="540" rx="72" ry="8" fill="var(--store-bg)" stroke="var(--store)" stroke-width="1.4"/>
+        </g>
+        <!-- cache/fitness.json + activity_&lt;id&gt;.json -->
+        <g>
+          <ellipse cx="670" cy="600" rx="72" ry="8" fill="var(--surface)" stroke="var(--store)" stroke-width="1.4"/>
+          <rect x="598" y="540" width="144" height="60" fill="var(--surface)" stroke="none"/>
+          <line x1="598" y1="540" x2="598" y2="600" stroke="var(--store)" stroke-width="1.4"/>
+          <line x1="742" y1="540" x2="742" y2="600" stroke="var(--store)" stroke-width="1.4"/>
+          <ellipse cx="670" cy="540" rx="72" ry="8" fill="var(--store-bg)" stroke="var(--store)" stroke-width="1.4"/>
+        </g>
+        <!-- cache/ai_analysis.json -->
+        <g>
+          <ellipse cx="840" cy="600" rx="72" ry="8" fill="var(--surface)" stroke="var(--store)" stroke-width="1.4"/>
+          <rect x="768" y="540" width="144" height="60" fill="var(--surface)" stroke="none"/>
+          <line x1="768" y1="540" x2="768" y2="600" stroke="var(--store)" stroke-width="1.4"/>
+          <line x1="912" y1="540" x2="912" y2="600" stroke="var(--store)" stroke-width="1.4"/>
+          <ellipse cx="840" cy="540" rx="72" ry="8" fill="var(--store-bg)" stroke="var(--store)" stroke-width="1.4"/>
+        </g>
+        <!-- goals.json -->
+        <g>
+          <ellipse cx="1010" cy="600" rx="72" ry="8" fill="var(--surface)" stroke="var(--store)" stroke-width="1.4"/>
+          <rect x="938" y="540" width="144" height="60" fill="var(--surface)" stroke="none"/>
+          <line x1="938" y1="540" x2="938" y2="600" stroke="var(--store)" stroke-width="1.4"/>
+          <line x1="1082" y1="540" x2="1082" y2="600" stroke="var(--store)" stroke-width="1.4"/>
+          <ellipse cx="1010" cy="540" rx="72" ry="8" fill="var(--store-bg)" stroke="var(--store)" stroke-width="1.4"/>
+          <text x="1010" y="516" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--ink)">goals.json</text>
+        </g>
+        <!-- last_sync.json -->
+        <g>
+          <ellipse cx="1180" cy="600" rx="72" ry="8" fill="var(--surface)" stroke="var(--store)" stroke-width="1.4"/>
+          <rect x="1108" y="540" width="144" height="60" fill="var(--surface)" stroke="none"/>
+          <line x1="1108" y1="540" x2="1108" y2="600" stroke="var(--store)" stroke-width="1.4"/>
+          <line x1="1252" y1="540" x2="1252" y2="600" stroke="var(--store)" stroke-width="1.4"/>
+          <ellipse cx="1180" cy="540" rx="72" ry="8" fill="var(--store-bg)" stroke="var(--store)" stroke-width="1.4"/>
+        </g>
+        <text x="1300" y="594" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">writer paths above</text>
+
+        <!-- edges cached_fetch -> stores -->
+        <path d="M 330 305 V 525" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+        <path d="M 500 305 V 525" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+        <path d="M 670 305 V 525" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+        <!-- ai analysis writes its own cache file (not through cached_fetch) -->
+        <path d="M 840 305 V 525" fill="none" stroke="var(--logic)" stroke-width="1.5" marker-end="url(#ah)"/>
+        <!-- last_sync written from both writer lanes -->
+        <path d="M 380 432 V 445 H 1170 V 525" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+        <path d="M 1240 437 V 525" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+        <rect x="700" y="425" width="150" height="13" fill="var(--surface)"/>
+        <text x="775" y="435" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9" fill="var(--muted)">write_sync_status()</text>
+
+        <!-- halos: labels crossed by the storage-write edges above -->
+        <rect x="260" y="372" width="145" height="13" fill="var(--surface)"/>
+        <rect x="260" y="387" width="175" height="13" fill="var(--surface)"/>
+        <rect x="260" y="400" width="160" height="13" fill="var(--surface)"/>
+        <rect x="260" y="413" width="175" height="13" fill="var(--surface)"/>
+        <text x="265" y="382" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" fill="var(--ink)">Flask request thread</text>
+        <text x="265" y="397" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">lazy, TTL-gated — any GET</text>
+        <text x="265" y="410" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">route can trigger a fetch</text>
+        <text x="265" y="423" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">threaded=True — concurrent</text>
+        <rect x="255" y="506" width="150" height="13" fill="var(--surface)"/>
+        <text x="330" y="516" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--ink)">cache/daily_&lt;date&gt;.json</text>
+        <rect x="435" y="506" width="130" height="13" fill="var(--surface)"/>
+        <text x="500" y="516" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--ink)">activities_30d.json</text>
+        <rect x="595" y="506" width="150" height="13" fill="var(--surface)"/>
+        <text x="670" y="516" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--ink)">fitness / activity_&lt;id&gt;</text>
+        <rect x="785" y="506" width="110" height="13" fill="var(--surface)"/>
+        <text x="840" y="516" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--ink)">ai_analysis.json</text>
+        <rect x="1115" y="506" width="130" height="13" fill="var(--surface)"/>
+        <text x="1180" y="516" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--ink)">last_sync.json</text>
+
+        <!-- ===================== LANE 5: LOGIC (two lanes) ===================== -->
+        <!-- Rule-based lane -->
+        <rect x="240" y="672" width="560" height="90" rx="2" fill="var(--logic-bg)" stroke="var(--logic)" stroke-width="1.4"/>
+        <text x="252" y="694" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" fill="var(--ink)">_generate_insights()</text>
+        <text x="252" y="709" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">rule-based, free, always available</text>
+        <text x="252" y="723" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">5 categories: Sono, Saude, Tendencias,</text>
+        <text x="252" y="736" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">Treino, Correlacoes — feeds the</text>
+        <text x="252" y="749" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">Insights panel and training report</text>
+
+        <!-- Gemini lane -->
+        <rect x="840" y="672" width="480" height="90" rx="2" fill="var(--gate-bg)" stroke="var(--gate)" stroke-width="1.4"/>
+        <text x="852" y="694" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" fill="var(--ink)">generate_ai_analysis()</text>
+        <text x="852" y="723" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">the AI Analysis panel only</text>
+        <!-- "optional, paid-free-tier", "degrades to...", "no key / timeout..." re-emitted with halos after the storage->logic edges below, since the goals.json->read_sync_status edge passes behind this box -->
+
+
+        <!-- pick_display_snapshot -->
+        <rect x="240" y="780" width="330" height="70" rx="2" fill="var(--logic-bg)" stroke="var(--logic)" stroke-width="1.4"/>
+        <text x="252" y="802" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" fill="var(--ink)">pick_display_snapshot()</text>
+        <text x="252" y="817" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">walks back to last COMPLETE day if</text>
+        <text x="252" y="830" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">today is incomplete → snapshot_is_fallback</text>
+
+        <!-- trends / goals / streak -->
+        <rect x="600" y="780" width="330" height="70" rx="2" fill="var(--logic-bg)" stroke="var(--logic)" stroke-width="1.4"/>
+        <text x="612" y="802" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" fill="var(--ink)">compute_trends / compute_goals</text>
+        <text x="612" y="817" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">compute_streak — 7d vs prev 7d,</text>
+        <text x="612" y="830" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">polarity-aware sentiment per metric</text>
+
+        <!-- read_sync_status -->
+        <rect x="960" y="780" width="360" height="70" rx="2" fill="var(--logic-bg)" stroke="var(--logic)" stroke-width="1.4"/>
+        <text x="972" y="802" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" fill="var(--ink)">read_sync_status()</text>
+        <text x="972" y="817" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">level: ok / stale (&gt;26h) / fail —</text>
+        <text x="972" y="830" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">falls back to newest daily_*.json mtime</text>
+
+        <!-- edges storage -> logic (dashed = read-only) -->
+        <path d="M 330 608 V 672" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ah)"/>
+        <path d="M 500 608 V 672" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ah)"/>
+        <path d="M 670 608 V 672" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ah)"/>
+        <path d="M 840 608 V 672" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ah)"/>
+        <path d="M 1180 608 V 780" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ah)"/>
+        <path d="M 1010 608 V 780" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ah)"/>
+
+        <!-- halos: goals.json/last_sync.json read edges pass behind the Gemini lane box's lower text -->
+        <rect x="847" y="699" width="150" height="13" fill="var(--surface)"/>
+        <text x="852" y="709" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">optional, paid-free-tier — feeds</text>
+        <rect x="847" y="726" width="185" height="13" fill="var(--surface)"/>
+        <text x="852" y="736" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">degrades to {ok:false, error} on:</text>
+        <rect x="847" y="739" width="330" height="13" fill="var(--surface)"/>
+        <text x="852" y="749" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">no key / timeout / no candidates / empty text</text>
+
+        <!-- ===================== LANE 6: ROUTES ===================== -->
+        <rect x="240" y="978" width="330" height="90" rx="2" fill="var(--signal-bg)" stroke="var(--signal)" stroke-width="1.4"/>
+        <text x="252" y="1000" font-family="JetBrains Mono, monospace" font-size="10.5" font-weight="700" fill="var(--ink)">GET /api/state, /api/report,</text>
+        <text x="252" y="1015" font-family="JetBrains Mono, monospace" font-size="10.5" font-weight="700" fill="var(--ink)">/api/activity/&lt;id&gt;, /api/goals,</text>
+        <text x="252" y="1030" font-family="JetBrains Mono, monospace" font-size="10.5" font-weight="700" fill="var(--ink)">/api/data, /legacy</text>
+        <text x="252" y="1050" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">reads logic lane, no writes</text>
+        <text x="252" y="1063" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">errors surface as {ok:false}, 200</text>
+
+        <rect x="610" y="978" width="220" height="90" rx="2" fill="var(--signal-bg)" stroke="var(--signal)" stroke-width="1.4"/>
+        <text x="622" y="1000" font-family="JetBrains Mono, monospace" font-size="10.5" font-weight="700" fill="var(--ink)">GET /api/analysis</text>
+        <text x="622" y="1015" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">?force triggers a fresh</text>
+        <text x="622" y="1028" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">Gemini call, bypassing</text>
+        <text x="622" y="1041" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">the 3h cache</text>
+
+        <!-- gated route: POST /refresh -->
+        <rect x="870" y="972" width="290" height="100" rx="2" fill="var(--interlock-bg)" stroke="var(--interlock)" stroke-width="1.8"/>
+        <text x="882" y="994" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" fill="var(--interlock)">POST /refresh</text>
+        <text x="882" y="1009" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--ink)">GATE 1 · unlink cache/*.json</text>
+        <text x="882" y="1022" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--ink)">GATE 2 · refetch multi_day /</text>
+        <text x="882" y="1035" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--ink)">activities / fitness</text>
+        <text x="882" y="1050" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--interlock)" font-weight="600">only route that can return 500</text>
+        <text x="882" y="1063" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--ink)">— failure leaves cache empty till 09:00</text>
+
+        <!-- POST /shutdown -->
+        <rect x="1200" y="988" width="150" height="55" rx="2" fill="var(--surface-2)" stroke="var(--muted)" stroke-width="1.4"/>
+        <text x="1210" y="1010" font-family="JetBrains Mono, monospace" font-size="10.5" font-weight="700" fill="var(--ink)">POST /shutdown</text>
+        <text x="1210" y="1025" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">SIGTERMs itself</text>
+
+        <!-- edges logic -> routes -->
+        <path d="M 400 850 V 978" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ah)"/>
+        <path d="M 700 850 V 978" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ah)"/>
+        <path d="M 1000 762 L 1330 778 V 910 L 720 945 V 978" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ah)"/>
+        <!-- refresh gate reaches all the way back to storage: solid red, rightward-only rail -->
+        <path d="M 1015 972 V 900 H 1400 V 548 L 1252 540" fill="none" stroke="var(--interlock)" stroke-width="2" marker-end="url(#ahr)"/>
+        <rect x="1330" y="880" width="70" height="13" fill="var(--surface)"/>
+        <text x="1365" y="890" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9" fill="var(--interlock)">rebuilds</text>
+        <!-- halo: the red rail's x=1400 corridor passes behind this label -->
+        <rect x="1295" y="570" width="150" height="13" fill="var(--surface)"/>
+        <text x="1300" y="580" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">no lock across the two</text>
+
+        <!-- ===================== LANE 7: CLIENTS ===================== -->
+        <rect x="300" y="1120" width="280" height="80" rx="2" fill="var(--client-bg)" stroke="var(--client)" stroke-width="1.4"/>
+        <text x="312" y="1145" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" fill="var(--ink)">React SPA — GET /</text>
+        <text x="312" y="1160" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">served from web/dist, calls</text>
+        <text x="312" y="1173" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">/api/state, /api/report, /api/goals,</text>
+        <text x="312" y="1186" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">/api/activity/&lt;id&gt;, /refresh, /shutdown</text>
+
+        <rect x="640" y="1120" width="260" height="80" rx="2" fill="var(--client-bg)" stroke="var(--client)" stroke-width="1.4"/>
+        <text x="652" y="1145" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" fill="var(--ink)">Legacy page — GET /legacy</text>
+        <text x="652" y="1160" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">Jinja render_template_string,</text>
+        <text x="652" y="1173" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">reads the same logic lane, server-</text>
+        <text x="652" y="1186" font-family="Source Serif 4, serif" font-size="9.5" fill="var(--muted)">rendered — still maintained</text>
+
+        <!-- edges routes -> clients -->
+        <path d="M 440 1068 V 1120" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+        <path d="M 770 1068 V 1120" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ah)"/>
+
+      
+<rect x="0" y="1230.0" width="1560.0" height="46" fill="var(--surface)"/>
+<line x1="0" y1="1230.0" x2="1560.0" y2="1230.0" stroke="var(--line)" stroke-width="1"/>
+<text x="14" y="1258.0" font-family="Archivo, sans-serif" font-size="12" font-weight="700" fill="var(--ink)">Legend</text>
+<line x1="90" y1="1253.0" x2="124" y2="1253.0" stroke="var(--muted)" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="134" y="1257.0" font-family="Source Serif 4, serif" font-size="11.5" fill="var(--muted)">data / control flow</text>
+<line x1="274.0" y1="1253.0" x2="308.0" y2="1253.0" stroke="var(--muted)" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#ah)"/>
+<text x="318.0" y="1257.0" font-family="Source Serif 4, serif" font-size="11.5" fill="var(--muted)">read-only access</text>
+<line x1="440.0" y1="1253.0" x2="474.0" y2="1253.0" stroke="var(--interlock)" stroke-width="2.2" marker-end="url(#ah)"/>
+<text x="484.0" y="1257.0" font-family="Source Serif 4, serif" font-size="11.5" fill="var(--muted)">gated — can affect the outside world</text>
+<ellipse cx="743.0" cy="1253.0" rx="17" ry="5" fill="var(--store-bg)" stroke="var(--store)" stroke-width="1.4"/>
+<text x="770.0" y="1257.0" font-family="Source Serif 4, serif" font-size="11.5" fill="var(--muted)">stored data</text>
+</svg>

@@ -5,6 +5,23 @@ serves it at `http://localhost:5557` — steps, resting HR, stress, Body Battery
 sleep, VO2max/fitness trends, and a per-activity training report, plus an
 optional AI-generated daily analysis via the Gemini API.
 
+## Architecture
+
+![Architecture](docs/architecture.svg)
+
+Two details in the diagram carry most of the design:
+
+- **`cached_fetch()` is the only path to the network**, and its TTL is tiered by how
+  mutable the data is: today's snapshot 15 minutes (it is still arriving from the
+  watch), past days 24 hours (immutable once synced), fitness 6 hours, per-activity
+  detail 24 hours, AI analysis 3 hours.
+- **Two independent writers share `cache/` with no lock** — on-demand Flask request
+  threads, and the daily `daily_fetch.sh` job, which imports the fetch functions
+  directly and bypasses HTTP entirely so it still works when the server is down.
+
+Note that `POST /refresh` is destructive-then-rebuild: it deletes every cache file
+before refetching, so a failed refresh leaves the cache empty until the next run.
+
 ## How it works
 
 - **`app.py`** — a Flask app that logs into Garmin Connect via
